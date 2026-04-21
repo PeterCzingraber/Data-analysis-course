@@ -1,0 +1,199 @@
+---
+title: "data_analysis_script"
+author: "Peter Czingraber"
+date: "2026-04-21"
+output: pdf_document
+---
+
+### Installing packages
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+```
+
+### Importing data
+
+```{r}
+raw_pilot_data = read_csv("raw_data.csv")
+```
+
+### Data cleaning
+
+#### Flagging practice trials
+
+```{r}
+raw_pilot_data = raw_pilot_data %>% 
+  group_by(subj_code) %>% 
+  mutate(block_marker = coalesce(str_detect(stimulus, regex("Blokk\\s*1\\s*kezdődik", ignore_case = TRUE)),
+                                 FALSE),
+         start_seen = cummax(trial_index == 0),
+         marker_seen = cummax(block_marker),
+         trial_exp = if_else(start_seen == 1 & marker_seen == 0, "practice", "experimental")) %>% 
+  ungroup()
+```
+
+#### Flagging previous trials
+
+```{r}
+raw_pilot_data = raw_pilot_data %>%
+  mutate(prev_congruency = lag(congruency, n = 4),
+         prev_correct = lag(correct, n = 4),
+         correct = ifelse(correct == "TRUE", 1, 0),
+         prev_correct = ifelse(prev_correct == "TRUE", 1, 0),
+         first_trial = ifelse(lag(str_detect(stimulus, "Blokk \\d+ kezdődik"), 4) == TRUE, 1, 0),
+         rt = as.numeric(rt))
+```
+
+### Filtering subjects with accuracy below 60%
+
+```{r}
+accuracy = raw_pilot_data %>% 
+      group_by(subj_code) %>%
+      summarize(all_accuracy = mean(correct, na.rm = TRUE))
+
+raw_pilot_data = raw_pilot_data %>% 
+  select(-any_of("all_accuracy")) %>% 
+  left_join(accuracy, by = "subj_code") %>%
+  filter(all_accuracy > 0.60, first_trial != 1) 
+```
+
+#### Filtering data
+
+```{r}
+filtered_pilot_data = raw_pilot_data %>%
+  filter(correct == 1,
+         prev_correct == 1,
+         rt >= 150 | is.na(rt))
+```
+
+```{r}
+processed_pilot_data = filtered_pilot_data %>% 
+  select(
+    -stimulus,
+    -response,
+    -trial_type,
+    -trial_index,
+    -plugin_version,
+    -time_elapsed,
+    -success,
+    -question_order,
+    -correct_response,
+    -block_marker,
+    -marker_seen,
+    -prev_correct,
+    -start_seen,
+    -trial_exp,
+    -first_trial,
+    -name)
+```
+
+### Descriptive analysis function
+
+```{r}
+dstats = function(x, na.omit=FALSE){
+  if (na.omit)
+  x = x[!is.na(x)]
+  min = min(x)
+  max = max(x)
+  m = mean(x)
+  median = median(x)
+  n = length(x)
+  stds = sd(x)
+  skew = 3*(m-median)/stds
+  kurt = (length(x) * sum((x - mean(x))^4)) / (sum((x - mean(x))^2)^2) - 3
+
+  
+#Return all calculated values to vectors
+  return(c(
+    min = min,
+    max = max,
+    mean = m,
+    median = median,
+    sd = stds,
+    skewness = skew,
+    kurtosis = kurt
+  ))
+}
+```
+
+### Descriptive statistics for aggregated RT values
+
+```{r}
+mean_rt_df = processed_pilot_data %>% 
+  group_by(subj_code) %>% 
+  summarise(mean_rt_congruent = mean(rt[congruency == "congruent"]),
+            mean_rt_incongruent = mean(rt[congruency == "incongruent"]))
+
+myvars = c("mean_rt_congruent", "mean_rt_incongruent")
+sapply(mean_rt_df[myvars], dstats)
+```
+
+### Density plot
+
+```{r}
+density_rt = ggplot(processed_pilot_data, aes(rt))
+density_rt + geom_density()
+```
+
+### Violinplots for CE
+
+#### Appropriate data structure for visualization
+
+```{r}
+ce_rt = processed_pilot_data %>% 
+  group_by(subj_code, congruency) %>% 
+  summarise(mean_rt = mean(rt))
+```
+
+```{r}
+violin = ggplot(ce_rt, aes(congruency, mean_rt, fill = congruency)) +
+  geom_violin(trim = TRUE, bounds = c(0, Inf), width = 0.5) +
+  geom_boxplot(width = 0.1, colour = c("black", "white"), outlier.shape = NA) +
+  labs(title = "Congruency Effect", x = "Congruency", y = "Mean reaction time (ms)") +
+  papaja::theme_apa(base_family = "Times") +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("congruent" = "#FAC775", "incongruent" = "#BA7517"))
+#ggsave("ce_violin.png", plot = violin, width = 16, height = 9, units = "cm", dpi = 320)
+print(violin)
+```
+
+### Assumption check for H1
+
+```{r}
+assumption_h1 = with(mean_rt_df, mean_rt_incongruent - mean_rt_congruent)
+shapiro.test(assumption_h1)
+```
+
+#### If the assumption of normality is not met, we will use Wilcoxon signed-rank test for H1
+
+```{r}
+wilcox.test(mean_rt_df$mean_rt_incongruent, mean_rt_df$mean_rt_congruent, paired = TRUE, alternative = "greater")
+```
+
+### H1 - Congruency Effect (paired samples t-test)
+
+```{r}
+t.test(mean_rt_df$mean_rt_incongruent, mean_rt_df$mean_rt_congruent, paired = T, alternative = "greater")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

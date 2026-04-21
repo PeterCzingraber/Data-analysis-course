@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Prime-Probe Direction Task</title>
+    <link href="https://unpkg.com/jspsych/css/jspsych.css" rel="stylesheet" type="text/css">
+    <script src="https://unpkg.com/jspsych"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response"></script>
+    <style>
+        body {
+            background-color: #000;
+        }
+        .jspsych-display-element {
+            background-color: #000;
+            color: #fff;
+            font-family: monospace;
+        }
+        .jspsych-content {
+            max-width: 800px;
+        }
+        .stim {
+            font-size: 40px;
+            color: white;
+            white-space: pre-line;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .instructions {
+            font-size: 22px;
+            color: white;
+            text-align: center;
+            line-height: 1.8;
+            max-width: 700px;
+            margin: auto;
+        }
+        .feedback-slow {
+            font-size: 36px;
+            color: #FFD700;
+            text-align: center;
+        }
+        .feedback-incorrect {
+            font-size: 36px;
+            color: #FF3B3B;
+            text-align: center;
+        }
+        .jspsych-btn {
+            background-color: #333;
+            color: white;
+            border: 1px solid #666;
+            padding: 10px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .jspsych-btn:hover {
+            background-color: #555;
+        }
+    </style>
+</head>
+<body></body>
+<script>
+
+// Initialize jsPsych
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        // Download CSV on experiment end
+        const csv = jsPsych.data.get().filter({task: 'probe'}).csv();
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `prime_probe_${subj_code}_${Date.now()}.csv`;
+        link.click();
+    }
+});
+
+// Subject code generation
+function makeId(length) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+const subj_code = makeId(6);
+jsPsych.data.addProperties({ subj_code: subj_code });
+
+// Experiment parameters
+const PRIME_DURATION    = 133;
+const BLANK_DURATION    = 33;
+const PROBE_DURATION    = 133;
+const PROBE_WINDOW      = 1000;
+const FIXATION_MIN      = 400;
+const FIXATION_MAX      = 600;
+const FEEDBACK_DURATION = 700;
+const SLOW_CUTOFF       = 1000;
+
+const N_PRACTICE   = 10;
+const N_EXPERIMENT = 50;
+
+// Define trial set
+const ALL_TRIALS = [
+    // Horizontal congruent
+    { prime: "bal\nbal\nbal",    probe: "bal",  correct_response: "a", congruency: "congruent",   name: "horizontal_con_1" },
+    { prime: "jobb\njobb\njobb", probe: "jobb", correct_response: "l", congruency: "congruent",   name: "horizontal_con_2" },
+    // Horizontal incongruent
+    { prime: "bal\nbal\nbal",    probe: "jobb", correct_response: "l", congruency: "incongruent", name: "horizontal_incon_1" },
+    { prime: "jobb\njobb\njobb", probe: "bal",  correct_response: "a", congruency: "incongruent", name: "horizontal_incon_2" },
+    // Vertical congruent
+    { prime: "fel\nfel\nfel",    probe: "fel",  correct_response: "e", congruency: "congruent",   name: "vertical_con_2" },
+    { prime: "le\nle\nle",       probe: "le",   correct_response: "n", congruency: "congruent",   name: "vertical_con_1" },
+    // Vertical incongruent
+    { prime: "fel\nfel\nfel",    probe: "le",   correct_response: "n", congruency: "incongruent", name: "vertical_incon_1" },
+    { prime: "le\nle\nle",       probe: "fel",  correct_response: "e", congruency: "incongruent", name: "vertical_incon_2" },
+];
+
+// Build alternating blocks of trials
+function makeAlternatingBlock(nTrials) {
+    const horizontal = ALL_TRIALS.filter(t => t.name.includes("horizontal"));
+    const vertical   = ALL_TRIALS.filter(t => t.name.includes("vertical"));
+
+    let axis = Math.random() < 0.5 ? "horizontal" : "vertical";
+    const block = [];
+    for (let i = 0; i < nTrials; i++) {
+        const pool = axis === "horizontal" ? horizontal : vertical;
+        const trial = { ...pool[Math.floor(Math.random() * pool.length)] };
+        block.push(trial);
+        axis = axis === "horizontal" ? "vertical" : "horizontal";
+    }
+    return block;
+}
+
+// Trial structure
+const fixation = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '<div class="stim">+</div>',
+    choices: "NO_KEYS",
+    trial_duration: () => Math.random() * (FIXATION_MAX - FIXATION_MIN) + FIXATION_MIN,
+    data: { task: 'fixation' }
+};
+
+const prime = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: () => `<div class="stim">${jsPsych.evaluateTimelineVariable('prime')}</div>`,
+    choices: "NO_KEYS",
+    trial_duration: PRIME_DURATION,
+    data: { task: 'prime' }
+};
+
+const blank = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '',
+    choices: "NO_KEYS",
+    trial_duration: BLANK_DURATION,
+    data: { task: 'blank' }
+};
+
+const probe = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: () => `<div class="stim">${jsPsych.evaluateTimelineVariable('probe')}</div>`,
+    choices: ['a', 'A', 'e', 'E', 'n', 'N', 'l', 'L'],
+    stimulus_duration: PROBE_DURATION,
+    trial_duration: PROBE_WINDOW,
+    response_ends_trial: false,
+    data: {
+        task: 'probe',
+        correct_response: jsPsych.timelineVariable('correct_response'),
+        congruency: jsPsych.timelineVariable('congruency'),
+        name: jsPsych.timelineVariable('name'),
+    },
+    on_finish: function(data) {
+        // Normalize to lowercase for comparison
+        data.response = data.response ? data.response.toLowerCase() : null;
+        data.correct = data.response === data.correct_response;
+        data.slow = data.rt === null || data.rt > SLOW_CUTOFF;
+    }
+};
+
+// Practice feedback
+const prac_feedback = {
+    type: jsPsychHtmlKeyboardResponse,
+    choices: "NO_KEYS",
+    stimulus: function() {
+        const last = jsPsych.data.getLastTrialData().values()[0];
+        if (last.rt === null || last.rt > SLOW_CUTOFF) {
+            return '<div class="feedback-slow">Túl lassú!</div>';
+        }
+        if (!last.correct) {
+            return '<div class="feedback-incorrect">Hibás válasz!</div>';
+        }
+        return '<div></div>';
+    },
+    trial_duration: function() {
+        const last = jsPsych.data.getLastTrialData().values()[0];
+        if (last.rt === null || last.rt > SLOW_CUTOFF || !last.correct) {
+            return FEEDBACK_DURATION;
+        }
+        return BLANK_DURATION;
+    },
+    data: { task: 'feedback' }
+};
+
+// Build timeline
+const timeline = [];
+
+// Welcome
+const welcome = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>Üdvözlünk a kísérletben!</h2>
+            <p>Kattints a gombra a folytatáshoz.</p>
+        </div>`,
+    choices: ['Tovább']
+};
+timeline.push(welcome);
+
+// Instructions
+const instructions = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>FELADAT</h2>
+            <p>Minden körben egy rövid szót látsz (prime), majd egy célingerszót (probe).</p>
+            <p>A célingerszóra a megfelelő gombbal reagálj:</p>
+            <br>
+            <p>bal &nbsp; - &nbsp; <strong>A</strong></p>
+            <p>jobb &nbsp; - &nbsp; <strong>L</strong></p>
+            <p>fel &nbsp; - &nbsp; <strong>E</strong></p>
+            <p>le &nbsp; - &nbsp; <strong>N</strong></p>
+            <br>
+            <p>Reagálj a lehető leggyorsabban és legpontosabban!</p>
+            <br>
+            <p style="color:#aaa;">Nyomj SZÓKÖZT a gyakorláshoz.</p>
+        </div>`,
+    choices: [' ']
+};
+timeline.push(instructions);
+
+// Practice 
+const practice_intro = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>GYAKORLÁS</h2>
+            <p>${N_PRACTICE} gyakorló kör következik.</p>
+            <p>Helytelen vagy lassú válasz esetén visszajelzést kapsz.</p>
+            <br>
+            <p style="color:#aaa;">Nyomj SZÓKÖZT a kezdéshez.</p>
+        </div>`,
+    choices: [' ']
+};
+timeline.push(practice_intro);
+
+// Practice block
+const practice_stimuli = makeAlternatingBlock(N_PRACTICE);
+const practice_block = {
+    timeline: [fixation, prime, blank, probe, prac_feedback],
+    timeline_variables: practice_stimuli,
+    randomize_order: false
+};
+timeline.push(practice_block);
+
+// Practice end
+const practice_end = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        const probe_trials = jsPsych.data.get().filter({ task: 'probe' });
+        const correct = probe_trials.filter({ correct: true }).count();
+        const accuracy = Math.round(correct / probe_trials.count() * 100);
+        return `
+            <div class="instructions">
+                <h2>Gyakorlás vége!</h2>
+                <p>Pontosság: <strong>${accuracy}%</strong></p>
+                <br>
+                <p>Most a valódi kísérlet következik - visszajelzés nem lesz.</p>
+                <br>
+                <p style="color:#aaa;">Nyomj SZÓKÖZT a kezdéshez.</p>
+            </div>`;
+    },
+    choices: [' ']
+};
+timeline.push(practice_end);
+
+// Experimental block
+const exp_stimuli = makeAlternatingBlock(N_EXPERIMENT);
+const exp_block = {
+    timeline: [fixation, prime, blank, probe],
+    timeline_variables: exp_stimuli,
+    randomize_order: false
+};
+timeline.push(exp_block);
+
+// End screen
+const experiment_end = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: function() {
+        const probe_trials = jsPsych.data.get().filter({ task: 'probe', block: undefined });
+        const exp_probes = jsPsych.data.get().filter({ task: 'probe' });
+        const correct = exp_probes.filter({ correct: true }).count();
+        const accuracy = Math.round(correct / exp_probes.count() * 100);
+        return `
+            <div class="instructions">
+                <h2>A kísérlet véget ért!</h2>
+                <p>Pontosság: <strong>${accuracy}%</strong></p>
+                <br>
+                <p>Köszönjük a részvételt!</p>
+                <p>Az adatok mentése automatikusan történik.</p>
+            </div>`;
+    },
+    choices: ['Befejezés']
+};
+timeline.push(experiment_end);
+
+// Run the experiment
+jsPsych.run(timeline);
+
+</script>
+</html>
